@@ -1,12 +1,9 @@
-﻿using System;
+﻿using SharpDX.DirectInput;
+using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
 using System.Drawing;
 using System.Linq;
-using System.Text;
 using System.Windows.Forms;
-using SlimDX.DirectInput;
 
 namespace FFBTest
 {
@@ -43,7 +40,7 @@ namespace FFBTest
                 Close();
             }
             
-            IEnumerable<DeviceInstance> deviceList = DInputHandler.dInput.GetDevices(DeviceClass.GameController, DeviceEnumerationFlags.ForceFeedback);
+            IEnumerable<DeviceInstance> deviceList = DInputHandler.dInput.GetDevices(DeviceClass.GameControl, DeviceEnumerationFlags.ForceFeedback);
             if (deviceList.Count() == 0)
             {
                 MessageBox.Show("No force feedback devices found", "No devices",

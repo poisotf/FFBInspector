@@ -1,9 +1,7 @@
-﻿using System;
+﻿using SharpDX.DirectInput;
+using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Windows.Forms;
-using SlimDX.DirectInput;
 
 namespace FFBTest
 {
@@ -70,7 +68,6 @@ namespace FFBTest
         /// </returns>
         public bool InitDevice(IntPtr handle, bool autoCentering)
         {
-            SlimDX.Result res;
             ffbDevice = new Joystick(dInput, devInstanceGuid);
             if (ffbDevice == null)
             {
@@ -84,12 +81,15 @@ namespace FFBTest
             /* Tell DirectInput we want to have exlucive access to the device when the application has focus.
              * Exlusive access is necessary for the force feedback to work, but it prevents other applications
              * from accessing the device. */
-            res = ffbDevice.SetCooperativeLevel(handle, CooperativeLevel.Foreground | CooperativeLevel.Exclusive);
-            if (res != ResultCode.Success)
+            try
+            {
+                ffbDevice.SetCooperativeLevel(handle, CooperativeLevel.Background | CooperativeLevel.Exclusive);
+            }
+            catch (Exception e)
             {
                 MessageBox.Show("Cannot set cooperative level.\n" +
                                 "Make sure no other application is using the device\n" +
-                                res.ToString(), FFBInspector.Properties.Resources.errCap_dihError,
+                                e.Message, FFBInspector.Properties.Resources.errCap_dihError,
                                 MessageBoxButtons.OK, MessageBoxIcon.Stop);
                 return false;
             }
@@ -106,11 +106,11 @@ namespace FFBTest
             //Get all available force feedback actuators
             foreach (DeviceObjectInstance doi in ffbDevice.GetObjects())
             {
-                if ((doi.ObjectType & ObjectDeviceType.ForceFeedbackActuator) != 0)
-                    actuatorsObjectTypes.Add((int)doi.ObjectType);
+                if (doi.ObjectId.Flags.HasFlag(DeviceObjectTypeFlags.ForceFeedbackActuator))
+                    actuatorsObjectTypes.Add((int)doi.ObjectId);
             }
 
-            ffbDevice.Properties.SetRange(0, 16383);
+            ffbDevice.Properties.Range = new InputRange(0, 16383);
             ffbDevice.Properties.AutoCenter = autoCentering;
 
             return true;
@@ -122,16 +122,17 @@ namespace FFBTest
         /// <returns></returns>
         public bool SetAutoCenter(bool enableAC)
         {
-            SlimDX.Result res;
-
             if (ffbDevice == null)
                 return false;
 
             ffbDevice.Unacquire();
             ffbDevice.Properties.AutoCenter = enableAC;
 
-            res = ffbDevice.Acquire();
-            if (res.IsFailure)
+            try
+            {
+                ffbDevice.Acquire();
+            }
+            catch
             {
                 MessageBox.Show(FFBInspector.Properties.Resources.errMsg_dihCantAcquire, FFBInspector.Properties.Resources.errCap_dihError,
                                 MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -152,9 +153,14 @@ namespace FFBTest
             if (ffbDevice == null)
                 return null;
 
-            SlimDX.Result res = ffbDevice.Acquire();
-            if (!(res != ResultCode.Success || res != ResultCode.Failure))
+            try
+            {
+                ffbDevice.Acquire();
+            }
+            catch
+            {
                 return null;
+            }
 
             JoystickState js;
             try
@@ -231,7 +237,7 @@ namespace FFBTest
             DataClasses.HardwareInfo dc = new DataClasses.HardwareInfo();
 
             //Get info about hardware
-            dc.axesCount = ffbDevice.Capabilities.AxesCount;
+            dc.axesCount = ffbDevice.Capabilities.AxeCount;
             dc.buttonCount = ffbDevice.Capabilities.ButtonCount;
             dc.povCount = ffbDevice.Capabilities.PovCount;
             dc.driverVersion = ffbDevice.Capabilities.DriverVersion;
@@ -324,15 +330,18 @@ namespace FFBTest
 
             PauseAllEffects();
             ffbDevice.Unacquire();
-            ffbDevice.Properties.SetRange(s.minimum, s.maximum);
+            ffbDevice.Properties.Range = new InputRange(s.minimum, s.maximum);
 
- 
-            SlimDX.Result res = ffbDevice.Acquire();
-            if (!(res != ResultCode.Success || res != ResultCode.Failure))
+
+            try
+            {
+                ffbDevice.Acquire();
+            }
+            catch (Exception e)
             {
                 MessageBox.Show("Cannot reacquire the device.\n" +
                                 "Make sure no other application is using the device\n" +
-                                res.ToString(), FFBInspector.Properties.Resources.errCap_devError,
+                                e.ToString(), FFBInspector.Properties.Resources.errCap_devError,
                                 MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
@@ -389,15 +398,19 @@ namespace FFBTest
             if (data.effect.effectGuid == EffectGuid.ConstantForce)
             {
                 DataClasses.ConstantEffectTypeData cfEfd = (DataClasses.ConstantEffectTypeData)data.effect;
-                typeSpec = new ConstantForce();
-                typeSpec.AsConstantForce().Magnitude = cfEfd.magnitude;
+                typeSpec = new ConstantForce()
+                {
+                    Magnitude = cfEfd.magnitude
+                };
             }
             else if (data.effect.effectGuid == EffectGuid.RampForce)
             {
                 DataClasses.RampEffectTypeData rfEfd = (DataClasses.RampEffectTypeData)data.effect;
-                typeSpec = new RampForce();
-                typeSpec.AsRampForce().Start = rfEfd.start;
-                typeSpec.AsRampForce().End = rfEfd.end;
+                typeSpec = new RampForce()
+                {
+                    Start = rfEfd.start,
+                    End = rfEfd.end,
+                };
             }
             else if (data.effect.effectGuid == EffectGuid.Sine || data.effect.effectGuid == EffectGuid.Triangle ||
                      data.effect.effectGuid == EffectGuid.Square ||
@@ -405,36 +418,47 @@ namespace FFBTest
                      data.effect.effectGuid == EffectGuid.SawtoothDown)
             {
                 DataClasses.PeriodicEffectTypeData pfEfd = (DataClasses.PeriodicEffectTypeData)data.effect;
-                typeSpec = new PeriodicForce();
-                typeSpec.AsPeriodicForce().Magnitude = pfEfd.magnitude;
-                typeSpec.AsPeriodicForce().Offset = pfEfd.offset;
-                typeSpec.AsPeriodicForce().Period = pfEfd.period;
-                typeSpec.AsPeriodicForce().Phase = pfEfd.phase;
+                typeSpec = new PeriodicForce()
+                {
+                    Magnitude = pfEfd.magnitude,
+                    Offset = pfEfd.offset,
+                    Period = pfEfd.period,
+                    Phase = pfEfd.phase,
+                };
             }
             else if (data.effect.effectGuid == EffectGuid.Friction || data.effect.effectGuid == EffectGuid.Inertia ||
                      data.effect.effectGuid == EffectGuid.Damper || data.effect.effectGuid == EffectGuid.Spring)
             {
                 DataClasses.ConditionEffectTypeData cdEfd = (DataClasses.ConditionEffectTypeData)data.effect;
-                typeSpec = new ConditionSet();
-                typeSpec.AsConditionSet().Conditions = new Condition[1];
+                typeSpec = new ConditionSet()
+                {
+                    Conditions = new Condition[]
+                    {
+                        new Condition
+                        {
+                            DeadBand = cdEfd.deadBand,
+                            Offset = cdEfd.offset,
+                            NegativeCoefficient = cdEfd.negCoeff,
+                            NegativeSaturation = cdEfd.negSat,
+                            PositiveCoefficient = cdEfd.posCoeff,
+                            PositiveSaturation = cdEfd.posSat,
+                        }
+                    }
+                };
 
-                typeSpec.AsConditionSet().Conditions[0].DeadBand = cdEfd.deadBand;
-                typeSpec.AsConditionSet().Conditions[0].Offset = cdEfd.offset;
-                typeSpec.AsConditionSet().Conditions[0].NegativeCoefficient = cdEfd.negCoeff;
-                typeSpec.AsConditionSet().Conditions[0].NegativeSaturation = cdEfd.negSat;
-                typeSpec.AsConditionSet().Conditions[0].PositiveCoefficient = cdEfd.posCoeff;
-                typeSpec.AsConditionSet().Conditions[0].PositiveSaturation = cdEfd.posSat;
             }
             eParams.Parameters = typeSpec;
 
             //Create an envelope
             if (data.envelope != null)
             {
-                Envelope envp = new Envelope();
-                envp.AttackLevel = data.envelope.attackLevel;
-                envp.AttackTime = data.envelope.attackTime;
-                envp.FadeLevel = data.envelope.fadeLevel;
-                envp.FadeTime = data.envelope.fadeTime;
+                Envelope envp = new Envelope
+                {
+                    AttackLevel = data.envelope.attackLevel,
+                    AttackTime = data.envelope.attackTime,
+                    FadeLevel = data.envelope.fadeLevel,
+                    FadeTime = data.envelope.fadeTime
+                };
 
                 eParams.Envelope = envp;
             }
@@ -464,12 +488,7 @@ namespace FFBTest
         {
             for (int i = 0; i < FFB_EFFECT_SLOTS; i++)
             {
-                Effect ef = ffbEffects[i];
-                if (ef == null)
-                    continue;
-
-                if (StopFFBEffect(ef))
-                    ffbEffects[i] = null;
+                StopOneEffect(i);
             }
         }
 
@@ -486,6 +505,8 @@ namespace FFBTest
         {
             if (StopFFBEffect(ffbEffects[slot]))
             {
+                ffbEffects[slot].Unload();
+                ffbEffects[slot].Dispose();
                 ffbEffects[slot] = null;
                 return true;
             }
@@ -505,8 +526,6 @@ namespace FFBTest
         /// </returns>
         private bool StartFFBEffect(Effect ef)
         {
-            SlimDX.Result res;
-            
             if (ef == null)
             {
                 MessageBox.Show("NULL pointer to effect in \"DInputHandler::StartFFBEffect()\"",
@@ -515,18 +534,24 @@ namespace FFBTest
                 return false;
             }
 
-            res = ffbDevice.Acquire();
-            if (!(res != ResultCode.Success || res != ResultCode.Failure))
+            try
+            {
+                ffbDevice.Acquire();
+            }
+            catch (Exception e)
             {
                 MessageBox.Show("Cannot acquire the device.\n" +
                                 "Make sure no other application is using the device\n" +
-                                res.ToString(), FFBInspector.Properties.Resources.errCap_devError,
+                                e.Message, FFBInspector.Properties.Resources.errCap_devError,
                                 MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
-            
-            res = ef.Start();
-            if (res != ResultCode.Success)
+
+            try
+            {
+                ef.Start();
+            }
+            catch
             {
                 MessageBox.Show("Cannot start the effect.\n", FFBInspector.Properties.Resources.errCap_effError,
                                 MessageBoxButtons.OK, MessageBoxIcon.Stop);
@@ -547,25 +572,29 @@ namespace FFBTest
         /// </returns>
         private bool StopFFBEffect(Effect ef)
         {
-            SlimDX.Result res;
-
             if (ef == null)
             {
                 return false;
             }
 
-            res = ffbDevice.Acquire();
-            if (!(res != ResultCode.Success || res != ResultCode.Failure))
+            try
+            {
+                ffbDevice.Acquire();
+            }
+            catch (Exception e)
             {
                 MessageBox.Show("Cannot acquire the device.\n" +
                                 "Make sure no other application is using the device\n" +
-                                res.ToString(), FFBInspector.Properties.Resources.errCap_devError,
+                                e.Message, FFBInspector.Properties.Resources.errCap_devError,
                                 MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
-           
-            res = ef.Stop();
-            if (res != ResultCode.Success)
+
+            try
+            {
+                ef.Stop();
+            }
+            catch
             {
                 MessageBox.Show("Cannot stop effect.", FFBInspector.Properties.Resources.errCap_effError,
                                 MessageBoxButtons.OK, MessageBoxIcon.Stop);
